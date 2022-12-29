@@ -18,6 +18,8 @@ import pyspark.pandas as ps
 from pandas import DataFrame
 import warnings
 
+with open('init.conf', 'r', encoding='utf8') as json_file:
+    configs = json.load(json_file)
 
 class ETL():
     '''
@@ -44,20 +46,18 @@ class ETL():
             return df.randomSplit([chunk_percent] * num_chunks, seed=1234)
         yield [df]
 
-    def extacrt_using_pyspark(self):
+    def extacrt_using_pyspark(self, config):
         try:
-            spark = SparkSession.builder.config(\
-                "spark.jars",\
-                "/Users/mukul/Documents/mysql-connector-java-8.0.222/mysql-connector-java-8.0.22.jar") \
-                .master("local").appName("PySpark_MySQL_test").getOrCreate()
+            spark = SparkSession.builder.config("spark.jars", config['sql_connector_jar_file']) \
+                .master(config['spark_url']).appName("PySpark_MySQL_test").getOrCreate()
 
             df = spark.read \
                 .format("jdbc") \
-                .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-                .option("driver", "com.mysql.cj.jdbc.Driver") \
-                .option("dbtable", "video_measure") \
-                .option("user", "root") \
-                .option("password", "mukul123") \
+                .option("url", config["db_url"]) \
+                .option("driver", config["driver"]) \
+                .option("dbtable", config["db_write_tbl_name"]) \
+                .option("user", config["db_read_user"]) \
+                .option("password", config["db_read_pass"]) \
                 .load()
             return df
 
@@ -238,6 +238,19 @@ class ETL():
             'load_elapsed': load_elapsed
         }
         return dict_transform_load
+    @staticmethod
+    def write_to_db(spark_df, table_name):
+
+        spark_df.write \
+            .format("jdbc") \
+            .mode('append') \
+            .option("url", configs["db_url"]) \
+            .option("driver", configs["driver"]) \
+            .option("dbtable", table_name) \
+            .option("user", configs["db_read_user"]) \
+            .option("password", configs["db_read_pass"]) \
+            .save()
+
 
 
     def transform_(self, extr: pd.DataFrame):
@@ -304,10 +317,10 @@ class ETL():
 
         #-=================================ID==============================
 
-        df.id = df.id.apply(str)
-        df.id= df.id.apply(lambda x: x.split('|'))
-        df_temp = ps.DataFrame(df['id'].to_list())
-        df[df_temp.columns] = df_temp
+        temp = df.id.apply(str)
+        temp= temp.apply(lambda x: x.split('|'))
+        df_temp = ps.DataFrame(temp.to_list())
+        df[['id'+ str(i) for i in df_temp.columns]] = df_temp
 
 
         # df3 = df.id.apply(ps.Series)
@@ -322,10 +335,10 @@ class ETL():
 
         #===============================name =================================
 
-        df.name = df.name.apply(str)
-        df.name = df.name.apply(lambda x: x.split('||'))
-        df_temp = ps.DataFrame(df['name'].to_list())
-        df[df_temp.columns] = df_temp
+        df_name = df.name.apply(str)
+        df_name = df_name.apply(lambda x: x.split('||'))
+        df_name = ps.DataFrame(df_name.to_list())
+        df[['name'+str(i) for i in df_name.columns]] = df_name
         print('#6================================================================')
 
         # x = df.name.apply(lambda x: x.split('||'))
@@ -337,10 +350,10 @@ class ETL():
 
         #===============================category =================================
 
-        df.categories = df.categories.apply(str)
-        df.categories = df.categories.apply(lambda x: x.split(','))
-        df_temp = ps.DataFrame(df['categories'].to_list())
-        df[df_temp.columns] = df_temp
+        df_categories = df.categories.apply(str)
+        df_categories = df_categories.apply(lambda x: x.split(','))
+        df_categories = ps.DataFrame(df_categories.to_list())
+        df[['category'+ str(i) for i in df_categories.columns]]= df_categories
         print('#7================================================================')
 
 
@@ -353,10 +366,10 @@ class ETL():
         # ===============================category =================================
 
         # ===============================tags =================================
-        df.tags = df.tags.apply(str)
-        df.tags = df.tags.apply(lambda x: x.split(','))
-        df_temp = ps.DataFrame(df['tags'].to_list())
-        df[df_temp.columns] = df_temp
+        df_tags = df.tags.apply(str)
+        df_tags = df_tags.apply(lambda x: x.split(','))
+        df_tags = ps.DataFrame(df_tags.to_list())
+        df[['tag'+str(i) for i in df_tags.columns]] = df_tags
 
         print('#8================================================================')
 
@@ -368,17 +381,13 @@ class ETL():
         # ===============================tags =================================
 
         # ===============================attribute =================================
-        df.attributes = df.attributes.apply(str)
-        df.attributes = df.attributes.apply(lambda x: x.split(','))
-        df_temp = ps.DataFrame(df['attributes'].to_list())
-        df[df_temp.columns] = df_temp
+        df_attributes = df.attributes.apply(str)
+        df_attributes = df_attributes.apply(lambda x: x.split(','))
+        df_attributes = ps.DataFrame(df_attributes.to_list())
+        df[['attribute'+str(i) for i in df_attributes.columns]] = df_attributes
 
         print('#9================================================================')
 
-        # x = df.attributes.apply(lambda x: x.split(','))
-        # df3 = x.attributes.apply(pd.Series)
-        # df3.columns = ['attribute' + str(i) for i in range(1, len(df3.columns))]
-        # df[df3.columns] = df3
 
         # ===============================attribute =================================
 
@@ -411,16 +420,11 @@ class ETL():
         df_abr = df_abr.withColumnRenamed("arr0", "nvalue")
         print('#12================================================================')
 
+        try:
+            ETL.write_to_db(df_abr, "vm_abr")
+        except Exception as e:
+            print(f"error while saving data in 'vm_abr', {e}")
 
-        df_abr.write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_abr") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
         print('#13================================================================')
 
 
@@ -429,16 +433,10 @@ class ETL():
         df_vbr = df_vbr.withColumnRenamed("arr1", "nvalue")
 
         print('#14================================================================')
-
-        df_vbr.write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_vbr") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
+        try:
+            ETL.write_to_db(df_vbr, "vm_vbr")
+        except Exception as e:
+            print(f"error while saving data in 'vm_vbr', {e}")
 
         print('#15================================================================')
 
@@ -451,17 +449,19 @@ class ETL():
         df_temp = ps.DataFrame(df_nload['unload'].to_list(), columns=['nts', 'pfm'])
         df_nload[df_temp.columns] = df_temp
         df_nload = df_nload.drop(columns=['unload'])
+
+        try:
+            ETL.write_to_db(df_nload.to_spark(), "vm_unload")
+        except Exception as e:
+            print(f"error while saving data in 'vm_unload', {e}")
         print('#16================================================================')
 
-        df.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore')\
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "video_measure2") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
+
+        try:
+            ETL.write_to_db(df.to_spark(), "video_measure2")
+        except Exception as e:
+            print(f"error while saving data in 'video_measure2', {e}")
+
         print('#17================================================================')
 
         # ===============================unload =================================
@@ -473,16 +473,11 @@ class ETL():
         df_plays[df_temp.columns] = df_temp
         df_plays = df_plays.drop(columns=['play'])
         print('#18================================================================')
+        try:
+            ETL.write_to_db(df_plays.to_spark(), "vm_play")
+        except Exception as e:
+            print(f"error while saving data in 'vm_play', {e}")
 
-        df_plays.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_play") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
         print('#19================================================================')
 
 
@@ -495,16 +490,11 @@ class ETL():
         df_pause[df_temp.columns] = df_temp
         df_pause = df_pause.drop(columns=['pause'])
         print('#20================================================================')
+        try:
+            ETL.write_to_db(df_pause.to_spark(), "vm_pause")
+        except Exception as e:
+            print(f"error while saving data in 'vm_pause', {e}")
 
-        df_pause.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_pause") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
         print('#21================================================================')
 
         # ===============================pause =================================
@@ -516,20 +506,15 @@ class ETL():
         df_seek[df_temp.columns] = df_temp
         df_seek = df_seek.drop(columns=['seek'])
         print('#22================================================================')
+        try:
+            ETL.write_to_db(df_seek.to_spark(), "vm_seek")
+        except Exception as e:
+            print(f"error while saving data in 'vm_seek', {e}")
 
-        df_seek.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_seek") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
         print('#23================================================================')
 
         # ===============================seek =================================
-        from numpy import nan
+
         # ===============================playing =================================
         df_playing = df[df.playing.notnull()][['sessid', 'playing']]
         df_playing.playing = df_playing.playing.apply(lambda x: [x[4:x.index(',')], x[x.index(',') + 1:], x[1:4]])
@@ -537,16 +522,11 @@ class ETL():
         df_playing[df_temp.columns] = df_temp
         df_playing = df_playing.drop(columns=['playing'])
         print('#24================================================================')
+        try:
+            ETL.write_to_db(df_playing.to_spark(), "vm_playing")
+        except Exception as e:
+            print(f"error while saving data in 'vm_playing', {e}")
 
-        df_playing.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_playing") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
         print('#25================================================================')
 
         # ===============================playing =================================
@@ -558,16 +538,11 @@ class ETL():
         df_buffer[df_temp.columns] = df_temp
         df_buffer = df_buffer.drop(columns=['buffer'])
         print('#26================================================================')
+        try:
+            ETL.write_to_db(df_buffer.to_spark(), "vm_buffer")
+        except Exception as e:
+            print(f"error while saving data in 'vm_buffer', {e}")
 
-        df_buffer.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_buffer") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
         print('#27================================================================')
 
         # ===============================buffer =================================
@@ -589,15 +564,12 @@ class ETL():
         df_temp = ps.DataFrame(df_error['error'].to_list(), columns= ['nts', 'msg', 'pfm'])
         df_error[df_temp.columns] = df_temp
         df_error = df_error.drop(columns=['error'])
-        df_error.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_error") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
+
+        try:
+            ETL.write_to_db(df_error.to_spark(), "vm_error")
+        except Exception as e:
+            print(f"error while saving data in 'vm_error', {e}")
+
         print('#28================================================================')
 
 
@@ -610,16 +582,10 @@ class ETL():
         df_complete[df_temp.columns] = df_temp
         df_complete = df_complete.drop(columns=['complete'])
         print('#29================================================================')
-
-        df_complete.to_spark().write \
-            .format("jdbc") \
-            .mode('ignore') \
-            .option("url", "jdbc:mysql://localhost:3306/analyticdemo") \
-            .option("driver", "com.mysql.cj.jdbc.Driver") \
-            .option("dbtable", "vm_complete") \
-            .option("user", "root") \
-            .option("password", "mukul123") \
-            .save()
+        try:
+            ETL.write_to_db(df_complete.to_spark(), "vm_complete")
+        except Exception as e:
+            print(f"error while saving data in 'vm_complete', {e}")
         print('#30================================================================')
 
         # ===============================complete =================================
@@ -667,8 +633,8 @@ class ETL():
         else:
             df_benchmark.to_csv('./benchmark.csv', mode='a', header=False)
 
-    def execute_(self):
-        df = self.extacrt_using_pyspark()
+    def execute_(self, config):
+        df = self.extacrt_using_pyspark(config)
         self.transform_(df)
         return
 
@@ -723,12 +689,12 @@ if __name__ == '__main__':
         sys.exit(2)
 
     try:
-        with open('init.conf', 'r', encoding='utf8') as json_file:
-            configs = json.load(json_file)
+        # with open('init.conf', 'r', encoding='utf8') as json_file:
+        #     configs = json.load(json_file)
         t=time.time()
         system_info()
         etl = ETL(configs)
-        etl.execute_()
+        etl.execute_(configs)
         print("====================================exce time:", time.time() - t)
 
     except Exception as e:
